@@ -1,4 +1,158 @@
+// ============================================================
+// 统一搜索 MCP 服务器 - 主入口
+// Cloudflare Workers + Streamable HTTP
+// ============================================================
+
+import { McpAgent } from 'agents/mcp';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+
+import type { Env, SearchParams, EngineResponse } from './types';
+import { DuckDuckGoEngine } from './engines/duckduckgo';
+import { SearXNGEngine } from './engines/searxng';
+import { ExaEngine } from './engines/exa';
+import { TavilyEngine } from './engines/tavily';
+import { MetasoEngine } from './engines/metaso';
+import { JinaEngine } from './engines/jina';
+import { SearchAggregator } from './aggregator';
+import { formatResults, formatResultsMarkdown, formatResultsJson, validateSearchParams } from './utils';
+
+// ============================================================
+// MCP Agent 定义
+// ============================================================
+
+export class UnifiedSearchMCP extends McpAgent<Env> {
+  server = new McpServer({
+    name: 'Unified Search MCP',
+    version: '1.0.0'
+  });
+
+  async init() {
     // --------------------------------------------------------
+    // 工具: unified_search - 聚合搜索
+    // --------------------------------------------------------
+    this.server.tool(
+      'unified_search',
+      '聚合多个搜索引擎的结果，包括 DuckDuckGo、SearXNG、Exa、Tavily、Metaso、Jina。自动去重并按相关度排序返回最优结果。',
+      {
+        query: z.string().describe('搜索查询关键词'),
+        maxResults: z.number().min(1).max(50).default(20).describe('最大返回结果数 (1-50，默认20)'),
+        dateRange: z.enum(['day', 'week', 'month', 'year', 'all']).default('all').describe('时间范围过滤'),
+        engines: z.array(z.enum(['duckduckgo', 'searxng', 'exa', 'tavily', 'metaso', 'jina'])).optional().describe('指定使用的搜索引擎（默认全部）'),
+        language: z.string().default('zh').describe('搜索语言 (zh, en 等)'),
+        safeSearch: z.boolean().default(true).describe('是否启用安全搜索'),
+        outputFormat: z.enum(['text', 'json', 'markdown']).default('text').describe('输出格式')
+      },
+      async (params) => {
+        // 参数验证
+        const validation = validateSearchParams(params);
+        if (!validation.valid) {
+          return {
+            content: [{ type: 'text', text: `❌ 参数错误: ${validation.error}` }],
+            isError: true
+          };
+        }
+
+        const searchParams = validation.sanitized!;
+        const timeout = parseInt(this.env.DEFAULT_TIMEOUT || '8000');
+        const maxResults = parseInt(this.env.MAX_RESULTS || '20');
+
+        // 初始化搜索引擎
+        const engines = this.initializeEngines(searchParams.engines, timeout);
+        
+        if (engines.length === 0) {
+          return {
+            content: [{ type: 'text', text: '❌ 没有可用的搜索引擎。请检查 API 密钥配置。' }],
+            isError: true
+          };
+        }
+
+        // 并发执行搜索
+        const searchPromises = engines.map(engine => 
+          engine.execute({
+            query: searchParams.query,
+            maxResults: Math.ceil(searchParams.maxResults / engines.length) + 5,
+            dateRange: searchParams.dateRange as SearchParams['dateRange'],
+            language: searchParams.language,
+            safeSearch: searchParams.safeSearch
+          })
+        );
+
+        const responses = await Promise.all(searchPromises);
+
+        // 聚合结果
+        const aggregator = new SearchAggregator(searchParams.maxResults);
+        const aggregatedResponse = aggregator.aggregate(searchParams.query, responses);
+
+        // 格式化输出
+        let output: string;
+        switch (searchParams.outputFormat) {
+          case 'json':
+            output = formatResultsJson(aggregatedResponse);
+            break;
+          case 'markdown':
+            output = formatResultsMarkdown(aggregatedResponse);
+            break;
+          default:
+            output = formatResults(aggregatedResponse);
+        }
+
+        return {
+          content: [{ type: 'text', text: output }]
+        };
+      }
+    );
+
+    // --------------------------------------------------------
+    // 工具: quick_search - 快速搜索（仅DuckDuckGo，无需API Key）
+    // --------------------------------------------------------
+    this.server.tool(
+      'quick_search',
+      '快速搜索 - 仅使用 DuckDuckGo，无需 API Key，适合简单查询',
+      {
+        query: z.string().describe('搜索查询关键词'),
+        maxResults: z.number().min(1).max(20).default(10).describe('最大返回结果数')
+      },
+      async (params) => {
+        const { query, maxResults = 10 } = params;
+        
+        if (!query || query.trim().length === 0) {
+          return {
+            content: [{ type: 'text', text: '❌ 搜索查询不能为空' }],
+            isError: true
+          };
+        }
+
+        const timeout = parseInt(this.env.DEFAULT_TIMEOUT || '8000');
+        const engine = new DuckDuckGoEngine(this.env, timeout);
+        
+        try {
+          const response = await engine.execute({ query: query.trim(), maxResults });
+          
+          if (response.error) {
+            return {
+              content: [{ type: 'text', text: `❌ 搜索失败: ${response.error}` }],
+              isError: true
+            };
+          }
+
+          const aggregator = new SearchAggregator(maxResults);
+          const aggregatedResponse = aggregator.aggregate(query, [response]);
+          const output = formatResults(aggregatedResponse);
+
+          return {
+            content: [{ type: 'text', text: output }]
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: `❌ 搜索异常: ${error instanceof Error ? error.message : '未知错误'}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+        // --------------------------------------------------------
     // 工具: search_engines_status - 检查搜索引擎状态
     // --------------------------------------------------------
     this.server.tool(
@@ -156,7 +310,6 @@ wrangler secret put SEARXNG_URL
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
-
 
     // 健康检查端点
     if (url.pathname === '/health') {

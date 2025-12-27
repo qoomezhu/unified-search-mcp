@@ -59,4 +59,27 @@ export class ExaEngine extends SearchEngine {
     });
 
     if (!response.ok) {
-      const error
+      const errorText = await response.text();
+      throw new Error(`Exa API error: \({response.status} - \){errorText}`);
+    }
+
+    const data = await response.json() as {
+      results?: Array<{
+        title?: string;
+        url?: string;
+        text?: string;
+        publishedDate?: string;
+        score?: number;
+      }>;
+    };
+
+    return (data.results || []).map(r => ({
+      title: r.title || '',
+      url: r.url || '',
+      snippet: r.text || '',
+      source: this.name,
+      publishedDate: r.publishedDate,
+      score: r.score
+    }));
+  }
+}

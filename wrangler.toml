@@ -12,7 +12,7 @@ MAX_RESULTS = "20"
 name = "MCP_OBJECT"
 class_name = "UnifiedSearchMCP"
 
-# Durable Objects 迁移配置
+# Durable Objects 迁移配置（免费计划必须使用 new_sqlite_classes）
 [[migrations]]
 tag = "v1"
-new_classes = ["UnifiedSearchMCP"]
+new_sqlite_classes = ["UnifiedSearchMCP"]

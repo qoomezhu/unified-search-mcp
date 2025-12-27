@@ -12,7 +12,6 @@ import { SearchAggregator } from './aggregator';
 import { formatResults, formatResultsJson, formatResultsMarkdown, validateSearchParams } from './utils';
 import type { SearchEngine } from './engines/base';
 
-// 核心执行逻辑
 async function runUnifiedSearch(env: Env, args: any) {
   const v = validateSearchParams(args);
   if (!v.valid) return { content: [{ type: 'text', text: '❌ 错误: ' + v.error }] };
@@ -61,7 +60,8 @@ async function runConnectivityTest(env: Env) {
     
     try {
       const res = await engine.execute({ query: 'ping', maxResults: 1 });
-      return { name: name, status: res.error ? '❌' : '✅', latency: (Date.now() - start) + 'ms', note: res.error || '正常' };
+      const latency = (Date.now() - start) + 'ms';
+      return { name: name, status: res.error ? '❌' : '✅', latency: latency, note: res.error || '正常' };
     } catch (e) {
       return { name: name, status: '❌', latency: (Date.now() - start) + 'ms', note: '连接异常' };
     }
@@ -73,7 +73,6 @@ async function runConnectivityTest(env: Env) {
   return { content: [{ type: 'text', text: lines.join('\n') }] };
 }
 
-// Durable Object
 export class UnifiedSearchMCP extends McpAgent<Env> {
   server = new McpServer({ name: "unified-search", version: "1.0.0" });
   async init() {
@@ -82,7 +81,6 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
   }
 }
 
-// Worker Entry
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);

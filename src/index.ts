@@ -60,8 +60,8 @@ async function runConnectivityTest(env: Env) {
     
     try {
       const res = await engine.execute({ query: 'ping', maxResults: 1 });
-      const latency = (Date.now() - start) + 'ms';
-      return { name: name, status: res.error ? '❌' : '✅', latency: latency, note: res.error || '正常' };
+      const lat = (Date.now() - start) + 'ms';
+      return { name: name, status: res.error ? '❌' : '✅', latency: lat, note: res.error || '正常' };
     } catch (e) {
       return { name: name, status: '❌', latency: (Date.now() - start) + 'ms', note: '连接异常' };
     }

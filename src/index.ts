@@ -47,7 +47,7 @@ async function runConnectivityTest(env: Env) {
   const timeout = 5000;
   const lines = ['🧪 搜索引擎连通性测试 (Live Probe)', '============================================================'];
   
-  const results = await Promise.all(names.map(async (name) => {
+  for (const name of names) {
     const start = Date.now();
     let engine: any;
     if (name === 'duckduckgo') engine = new DuckDuckGoEngine(env, timeout);
@@ -56,20 +56,20 @@ async function runConnectivityTest(env: Env) {
     else if (name === 'metaso' && env.METASO_API_KEY) engine = new MetasoEngine(env, timeout);
     else if (name === 'jina' && env.JINA_API_KEY) engine = new JinaEngine(env, timeout);
     
-    if (!engine) return { name: name, status: '⚪', note: '未配置 Key' };
+    if (!engine) {
+      lines.push(name.padEnd(12) + ' | ⚪ | ---      | 未配置 Key');
+      continue;
+    }
     
     try {
       const res = await engine.execute({ query: 'ping', maxResults: 1 });
       const lat = (Date.now() - start) + 'ms';
-      return { name: name, status: res.error ? '❌' : '✅', latency: lat, note: res.error || '正常' };
+      const status = res.error ? '❌' : '✅';
+      lines.push(name.padEnd(12) + ' | ' + status + ' | ' + lat.padEnd(8) + ' | ' + (res.error || '正常'));
     } catch (e) {
-      return { name: name, status: '❌', latency: (Date.now() - start) + 'ms', note: '连接异常' };
+      lines.push(name.padEnd(12) + ' | ❌ | ---      | 连接异常');
     }
-  }));
-
-  results.forEach(r => {
-    lines.push(r.name.padEnd(12) + ' | ' + r.status + ' | ' + (r.latency || '---').padEnd(8) + ' | ' + r.note);
-  });
+  }
   return { content: [{ type: 'text', text: lines.join('\n') }] };
 }
 
@@ -84,9 +84,12 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': '*' };
+    
+    if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
+
     if (url.pathname === '/http') {
-      const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': '*' };
-      if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
+      if (request.method === 'GET') return new Response('HTTP MCP Active', { headers: cors });
       
       const body = await request.json() as any;
       let res: any;
@@ -94,19 +97,18 @@ export default {
       if (body.method === 'initialize') {
         res = { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'search', version: '1.0' } };
       } else if (body.method === 'tools/list') {
-        res = { tools: [{ name: 'unified_search', description: '聚合搜索工具' }, { name: 'test_engines_connectivity', description: '连通性测试工具' }] };
+        res = { tools: [{ name: 'unified_search', description: '聚合搜索' }, { name: 'test_engines_connectivity', description: '连通性测试' }] };
       } else if (body.method === 'tools/call') {
-        if (body.params.name === 'unified_search') {
-          res = await runUnifiedSearch(env, body.params.arguments);
-        } else {
-          res = await runConnectivityTest(env);
-        }
+        if (body.params.name === 'unified_search') res = await runUnifiedSearch(env, body.params.arguments);
+        else res = await runConnectivityTest(env);
       }
-      
-      return new Response(JSON.stringify({ jsonrpc: '2.0', result: res, id: body.id }), { 
-        headers: { ...cors, 'Content-Type': 'application/json' } 
-      });
+      return new Response(JSON.stringify({ jsonrpc: '2.0', result: res, id: body.id }), { headers: { ...cors, 'Content-Type': 'application/json' } });
     }
+    
+    if (url.pathname === '/' || url.pathname === '/health') {
+      return new Response('OK', { headers: cors });
+    }
+
     const id = env.MCP_OBJECT.idFromName('default');
     return env.MCP_OBJECT.get(id).fetch(request);
   }

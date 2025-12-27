@@ -172,3 +172,30 @@ export function validateSearchParams(params: Record<string, unknown>): {
   const validEngines = ['duckduckgo', 'searxng', 'exa', 'tavily', 'metaso', 'jina'];
   let engines = params.engines as string[] || validEngines;
   if (typeof engines === 'string')
+    engines = engines.split(',').map(e => e.trim().toLowerCase());
+  }
+  engines = engines.filter(e => validEngines.includes(e.toLowerCase()));
+  if (engines.length === 0) {
+    engines = validEngines;
+  }
+  
+  const maxResults = Math.min(Math.max(parseInt(String(params.maxResults)) || 20, 1), 50);
+  
+  const validFormats = ['text', 'json', 'markdown'];
+  const outputFormat = validFormats.includes(params.outputFormat as string) 
+    ? params.outputFormat as string 
+    : 'text';
+  
+  return {
+    valid: true,
+    sanitized: {
+      query: query.trim(),
+      maxResults,
+      dateRange,
+      engines,
+      language: (params.language as string) || 'zh',
+      safeSearch: params.safeSearch !== false,
+      outputFormat
+    }
+  };
+}

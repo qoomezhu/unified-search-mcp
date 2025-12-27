@@ -7,7 +7,7 @@ import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import type { Env, SearchParams, AggregatedResponse } from './types';
+import type { Env, SearchParams } from './types';
 import { DuckDuckGoEngine } from './engines/duckduckgo';
 import { SearXNGEngine } from './engines/searxng';
 import { ExaEngine } from './engines/exa';
@@ -28,9 +28,6 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
     version: "1.0.0"
   });
 
-  /**
-   * 初始化搜索引擎
-   */
   private initializeEngines(engineNames: string[], timeout: number): SearchEngine[] {
     const engines: SearchEngine[] = [];
 
@@ -67,7 +64,6 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
       }
     }
 
-    // 如果没有可用引擎，至少使用 DuckDuckGo
     if (engines.length === 0) {
       engines.push(new DuckDuckGoEngine(this.env, timeout));
     }
@@ -75,25 +71,8 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
     return engines;
   }
 
-  /**
-   * 获取可用引擎列表
-   */
-  private getAvailableEngines(): string[] {
-    const available: string[] = ['duckduckgo'];
-
-    if (this.env.SEARXNG_URL) available.push('searxng');
-    if (this.env.EXA_API_KEY) available.push('exa');
-    if (this.env.TAVILY_API_KEY) available.push('tavily');
-    if (this.env.METASO_API_KEY) available.push('metaso');
-    if (this.env.JINA_API_KEY) available.push('jina');
-
-    return available;
-  }
-
   async init() {
-    // --------------------------------------------------------
-    // 工具: unified_search - 聚合搜索
-    // --------------------------------------------------------
+    // 工具: unified_search
     this.server.tool(
       'unified_search',
       '聚合多个搜索引擎的结果，自动去重和排序',
@@ -101,7 +80,7 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
         query: z.string().describe('搜索关键词'),
         maxResults: z.number().min(1).max(50).optional().describe('最大结果数 (1-50, 默认20)'),
         dateRange: z.enum(['day', 'week', 'month', 'year', 'all']).optional().describe('时间范围'),
-        engines: z.array(z.string()).optional().describe('指定搜索引擎: duckduckgo, searxng, exa, tavily, metaso, jina'),
+        engines: z.array(z.string()).optional().describe('指定搜索引擎'),
         language: z.string().optional().describe('语言代码 (zh/en)'),
         safeSearch: z.boolean().optional().describe('安全搜索'),
         outputFormat: z.enum(['text', 'json', 'markdown']).optional().describe('输出格式')
@@ -114,7 +93,6 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
 
         const params = validation.sanitized!;
         const timeout = parseInt(this.env.DEFAULT_TIMEOUT || '8000');
-
         const engines = this.initializeEngines(params.engines, timeout);
 
         if (engines.length === 0) {
@@ -152,9 +130,7 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
       }
     );
 
-    // --------------------------------------------------------
-    // 工具: quick_search - 快速搜索 (仅 DuckDuckGo)
-    // --------------------------------------------------------
+    // 工具: quick_search
     this.server.tool(
       'quick_search',
       '快速搜索 - 仅使用 DuckDuckGo，无需 API Key',
@@ -204,9 +180,7 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
       }
     );
 
-    // --------------------------------------------------------
-    // 工具: search_engines_status - 检查搜索引擎状态
-    // --------------------------------------------------------
+    // 工具: search_engines_status
     this.server.tool(
       'search_engines_status',
       '检查各搜索引擎的可用状态',
@@ -241,22 +215,19 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
       }
     );
 
-    // --------------------------------------------------------
-    // 资源: help - 使用帮助
-    // --------------------------------------------------------
+    // 资源: help
     this.server.resource(
       'help',
       'unified-search://help',
       async () => {
-        const helpText = `
-# Unified Search MCP 使用指南
+        const helpText = `# Unified Search MCP 使用指南
 
 ## 可用工具
 
 ### 1.‌ unified_search
 聚合多个搜索引擎的结果，自动去重和排序。
 
-**参数:**
+参数:
 - query (必需): 搜索关键词
 - maxResults: 最大结果数 (1-50, 默认20)
 - dateRange: 时间范围 (day/week/month/year/all)
@@ -268,7 +239,7 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
 ### 2.‌ quick_search
 快速搜索，仅使用 DuckDuckGo，无需 API Key。
 
-**参数:**
+参数:
 - query (必需): 搜索关键词
 - maxResults: 最大结果数 (1-20, 默认10)
 
@@ -284,16 +255,8 @@ export class UnifiedSearchMCP extends McpAgent<Env> {
 | Exa | EXA_API_KEY | AI 搜索引擎 |
 | Tavily | TAVILY_API_KEY | AI 搜索引擎 |
 | Metaso | METASO_API_KEY | 中文搜索 |
-| Jina | JINA_API_KEY | AI 搜索引擎 |
+| Jina | JINA_API_KEY | AI 搜索引擎 |`;
 
-## 示例
-
-\`\`\`
-unified_search({ query: "人工智能最新进展", maxResults: 10 })
-quick_search({ query: "天气预报" })
-search_engines_status({})
-\`\`\`
-`;
         return {
           contents: [{
             uri: 'unified-search://help',
@@ -313,9 +276,22 @@ search_engines_status({})
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const pathname = url.pathname;
+
+    // CORS 预检请求
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, Upgrade, Connection',
+          'Access-Control-Max-Age': '86400'
+        }
+      });
+    }
 
     // 根路径 - 返回服务信息
-    if (url.pathname === '/' || url.pathname === '') {
+    if (pathname === '/' || pathname === '') {
       return new Response(JSON.stringify({
         name: 'unified-search-mcp',
         version: '1.0.0',
@@ -326,28 +302,45 @@ export default {
           mcp: '/mcp',
           health: '/health'
         },
+        usage: {
+          claude_desktop: {
+            command: 'npx',
+            args: ['mcp-remote', url.origin + '/sse']
+          },
+          direct_url: url.origin + '/sse'
+        },
         engines: ['duckduckgo', 'searxng', 'exa', 'tavily', 'metaso', 'jina']
       }, null, 2), {
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
       });
     }
 
     // 健康检查
-    if (url.pathname === '/health') {
-      return new Response(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }), {
+    if (pathname === '/health') {
+      return new Response(JSON.stringify({
+        status: 'ok',
+        timestamp: new Date().toISOString()
+      }), {
         headers: { 'Content-Type': 'application/json' }
       });
     }
 
     // MCP 请求路由到 Durable Object
-    if (url.pathname === '/sse' || url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) {
+    if (pathname === '/sse' || pathname === '/mcp' || pathname.startsWith('/mcp/')) {
       const id = env.MCP_OBJECT.idFromName('default');
       const stub = env.MCP_OBJECT.get(id);
       return stub.fetch(request);
     }
 
     // 404
-    return new Response(JSON.stringify({ error: 'Not Found', path: url.pathname }), {
+    return new Response(JSON.stringify({
+      error: 'Not Found',
+      path: pathname,
+      availableEndpoints: ['/', '/health', '/sse', '/mcp']
+    }), {
       status: 404,
       headers: { 'Content-Type': 'application/json' }
     });

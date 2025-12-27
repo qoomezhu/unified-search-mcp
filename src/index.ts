@@ -128,14 +128,51 @@ export default {
       if (body.method === 'initialize') {
         res = {
           protocolVersion: '2024-11-05',
-          capabilities: { tools: {} },
-          serverInfo: { name: 'unified-search', version: '1.0' }
+          capabilities: {
+            tools: { listChanged: false }
+          },
+          serverInfo: {
+            name: 'unified-search-mcp',
+            version: '1.0.0'
+          }
         };
+      } else if (body.method === 'notifications/initialized') {
+        return new Response(JSON.stringify({ jsonrpc: '2.0', result: {}, id: body.id }), {
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
       } else if (body.method === 'tools/list') {
         res = {
           tools: [
-            { name: 'unified_search', description: '聚合搜索' },
-            { name: 'test_engines_connectivity', description: '连通性测试' }
+            {
+              name: 'unified_search',
+              description: '聚合多个搜索引擎进行搜索，返回去重排序后的结果',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  query: {
+                    type: 'string',
+                    description: '搜索关键词'
+                  },
+                  maxResults: {
+                    type: 'number',
+                    description: '最大结果数量，默认20'
+                  },
+                  outputFormat: {
+                    type: 'string',
+                    description: '输出格式: text, json, markdown'
+                  }
+                },
+                required: ['query']
+              }
+            },
+            {
+              name: 'test_engines_connectivity',
+              description: '测试所有搜索引擎的连通性和API有效性',
+              inputSchema: {
+                type: 'object',
+                properties: {}
+              }
+            }
           ]
         };
       } else if (body.method === 'tools/call') {
@@ -143,9 +180,13 @@ export default {
         const toolArgs = body.params.arguments || {};
         if (toolName === 'unified_search') {
           res = await runUnifiedSearch(env, toolArgs);
-        } else {
+        } else if (toolName === 'test_engines_connectivity') {
           res = await runConnectivityTest(env);
+        } else {
+          res = { content: [{ type: 'text', text: 'Unknown tool: ' + toolName }] };
         }
+      } else {
+        res = {};
       }
       
       const responseBody = JSON.stringify({ jsonrpc: '2.0', result: res, id: body.id });

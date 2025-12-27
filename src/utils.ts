@@ -34,13 +34,17 @@ export function formatResultsJson(response: AggregatedResponse): string {
 
 export function formatResultsMarkdown(response: AggregatedResponse): string {
   let md = '# 🔍 搜索结果: ' + response.query + '\n\n';
-  md += '> 共找到 ' + response.totalResults + ' 条结果\n\n';
-  md += '## 📋 结果列表\n\n';
-  response.results.forEach((r, i) => {
-    md += '### ' + (i + 1) + '. ' + r.title + '\n';
-    md += '- 🔗 [点击访问](')\n';
-    md += '- 📝 ' + r.snippet + '\n\n';
-  });
+  md = md + '> 共找到 ' + response.totalResults + ' 条结果\n\n';
+  md = md + '## 📋 结果列表\n\n';
+  
+  for (let i = 0; i < response.results.length; i++) {
+    const r = response.results[i];
+    md = md + '### ' + (i + 1) + '. ' + r.title + '\n';
+    // 使用最拆解的写法，防止编译器报错
+    const linkText = '- 🔗 [点击访问](';)\n';
+    md = md + linkText + linkUrl + linkEnd;
+    md = md + '- 📝 ' + r.snippet + '\n\n';
+  }
   return md;
 }
 

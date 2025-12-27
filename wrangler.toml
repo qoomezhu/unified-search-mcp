@@ -3,12 +3,16 @@ main = "src/index.ts"
 compatibility_date = "2025-06-13"
 compatibility_flags = ["nodejs_compat"]
 
-# 可选：绑定KV或D1用于缓存
-# [[kv_namespaces]]
-# binding = "SEARCH_CACHE"
-# id = "your-kv-id"
-
 [vars]
-# 默认值，实际部署时通过secrets设置
 DEFAULT_TIMEOUT = "8000"
 MAX_RESULTS = "20"
+
+# Durable Objects 绑定配置
+[[durable_objects.bindings]]
+name = "MCP_OBJECT"
+class_name = "UnifiedSearchMCP"
+
+# Durable Objects 迁移配置
+[[migrations]]
+tag = "v1"
+new_classes = ["UnifiedSearchMCP"]

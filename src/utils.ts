@@ -38,7 +38,6 @@ export function formatResultsMarkdown(response: AggregatedResponse): string {
   md += '## 📋 结果列表\n\n';
   response.results.forEach((r, i) => {
     md += '### ' + (i + 1) + '. ' + r.title + '\n';
-    // ✅ 修正后的拼接逻辑
     md += '- 🔗 [点击访问](')\n';
     md += '- 📝 ' + r.snippet + '\n\n';
   });

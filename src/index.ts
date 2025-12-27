@@ -12,104 +12,154 @@ import { SearchAggregator } from './aggregator';
 import { formatResults, formatResultsJson, formatResultsMarkdown, validateSearchParams } from './utils';
 import type { SearchEngine } from './engines/base';
 
-async function runUnifiedSearch(env: Env, args: any) {
+async function runUnifiedSearch(env: Env, args: any): Promise<any> {
   const v = validateSearchParams(args);
-  if (!v.valid) return { content: [{ type: 'text', text: '❌ 错误: ' + v.error }] };
+  if (!v.valid) {
+    return { content: [{ type: 'text', text: 'Error: ' + v.error }] };
+  }
   
   const timeout = parseInt(env.DEFAULT_TIMEOUT || '8000');
   const engineNames = v.sanitized.engines.length > 0 ? v.sanitized.engines : ['duckduckgo'];
   const engines: SearchEngine[] = [];
   
-  for (const name of engineNames) {
-    const n = name.toLowerCase();
+  for (let i = 0; i < engineNames.length; i++) {
+    const n = String(engineNames[i]).toLowerCase();
     if (n === 'duckduckgo') engines.push(new DuckDuckGoEngine(env, timeout));
-    else if (n === 'searxng' && env.SEARXNG_URL) engines.push(new SearXNGEngine(env, timeout));
-    else if (n === 'exa' && env.EXA_API_KEY) engines.push(new ExaEngine(env, timeout));
-    else if (n === 'tavily' && env.TAVILY_API_KEY) engines.push(new TavilyEngine(env, timeout));
-    else if (n === 'metaso' && env.METASO_API_KEY) engines.push(new MetasoEngine(env, timeout));
-    else if (n === 'jina' && env.JINA_API_KEY) engines.push(new JinaEngine(env, timeout));
+    if (n === 'searxng' && env.SEARXNG_URL) engines.push(new SearXNGEngine(env, timeout));
+    if (n === 'exa' && env.EXA_API_KEY) engines.push(new ExaEngine(env, timeout));
+    if (n === 'tavily' && env.TAVILY_API_KEY) engines.push(new TavilyEngine(env, timeout));
+    if (n === 'metaso' && env.METASO_API_KEY) engines.push(new MetasoEngine(env, timeout));
+    if (n === 'jina' && env.JINA_API_KEY) engines.push(new JinaEngine(env, timeout));
   }
 
-  const activeEngines = engines.length > 0 ? engines : [new DuckDuckGoEngine(env, timeout)];
-  const responses = await Promise.all(activeEngines.map(e => e.execute(v.sanitized)));
+  if (engines.length === 0) {
+    engines.push(new DuckDuckGoEngine(env, timeout));
+  }
+
+  const responses = await Promise.all(engines.map(function(e) { return e.execute(v.sanitized); }));
   const result = new SearchAggregator(v.sanitized.maxResults).aggregate(v.sanitized.query, responses);
   
   let output = '';
-  if (v.sanitized.outputFormat === 'json') output = formatResultsJson(result);
-  else if (v.sanitized.outputFormat === 'markdown') output = formatResultsMarkdown(result);
-  else output = formatResults(result);
+  if (v.sanitized.outputFormat === 'json') {
+    output = formatResultsJson(result);
+  } else if (v.sanitized.outputFormat === 'markdown') {
+    output = formatResultsMarkdown(result);
+  } else {
+    output = formatResults(result);
+  }
   
   return { content: [{ type: 'text', text: output }] };
 }
 
-async function runConnectivityTest(env: Env) {
+async function runConnectivityTest(env: Env): Promise<any> {
   const names = ['duckduckgo', 'exa', 'tavily', 'metaso', 'jina'];
   const timeout = 5000;
-  const lines = ['🧪 搜索引擎连通性测试 (Live Probe)', '============================================================'];
+  const lines: string[] = [];
+  lines.push('搜索引擎连通性测试');
+  lines.push('============================================================');
   
-  for (const name of names) {
+  for (let i = 0; i < names.length; i++) {
+    const name = names[i];
     const start = Date.now();
-    let engine: any;
-    if (name === 'duckduckgo') engine = new DuckDuckGoEngine(env, timeout);
-    else if (name === 'exa' && env.EXA_API_KEY) engine = new ExaEngine(env, timeout);
-    else if (name === 'tavily' && env.TAVILY_API_KEY) engine = new TavilyEngine(env, timeout);
-    else if (name === 'metaso' && env.METASO_API_KEY) engine = new MetasoEngine(env, timeout);
-    else if (name === 'jina' && env.JINA_API_KEY) engine = new JinaEngine(env, timeout);
+    let engine: any = null;
     
-    if (!engine) {
-      lines.push(name.padEnd(12) + ' | ⚪ | ---      | 未配置 Key');
+    if (name === 'duckduckgo') engine = new DuckDuckGoEngine(env, timeout);
+    if (name === 'exa' && env.EXA_API_KEY) engine = new ExaEngine(env, timeout);
+    if (name === 'tavily' && env.TAVILY_API_KEY) engine = new TavilyEngine(env, timeout);
+    if (name === 'metaso' && env.METASO_API_KEY) engine = new MetasoEngine(env, timeout);
+    if (name === 'jina' && env.JINA_API_KEY) engine = new JinaEngine(env, timeout);
+    
+    if (engine === null) {
+      lines.push(name + ' | SKIP | 未配置');
       continue;
     }
     
     try {
-      const res = await engine.execute({ query: 'ping', maxResults: 1 });
-      const lat = (Date.now() - start) + 'ms';
-      const status = res.error ? '❌' : '✅';
-      lines.push(name.padEnd(12) + ' | ' + status + ' | ' + lat.padEnd(8) + ' | ' + (res.error || '正常'));
+      const res = await engine.execute({ query: 'test', maxResults: 1 });
+      const lat = Date.now() - start;
+      if (res.error) {
+        lines.push(name + ' | FAIL | ' + lat + 'ms | ' + res.error);
+      } else {
+        lines.push(name + ' | OK | ' + lat + 'ms');
+      }
     } catch (e) {
-      lines.push(name.padEnd(12) + ' | ❌ | ---      | 连接异常');
+      lines.push(name + ' | FAIL | 连接异常');
     }
   }
+  
   return { content: [{ type: 'text', text: lines.join('\n') }] };
 }
 
 export class UnifiedSearchMCP extends McpAgent<Env> {
   server = new McpServer({ name: "unified-search", version: "1.0.0" });
-  async init() {
-    this.server.tool('unified_search', '聚合搜索', { query: z.string() }, async (args) => runUnifiedSearch(this.env, args));
-    this.server.tool('test_engines_connectivity', '连通性测试', {}, async () => runConnectivityTest(this.env));
+  
+  async init(): Promise<void> {
+    this.server.tool('unified_search', '聚合搜索', { query: z.string() }, async function(args) {
+      return runUnifiedSearch(this.env, args);
+    }.bind(this));
+    
+    this.server.tool('test_engines_connectivity', '连通性测试', {}, async function() {
+      return runConnectivityTest(this.env);
+    }.bind(this));
   }
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': '*' };
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': '*'
+    };
     
-    if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders });
+    }
 
     if (url.pathname === '/http') {
-      if (request.method === 'GET') return new Response('HTTP MCP Active', { headers: cors });
+      if (request.method === 'GET') {
+        return new Response('MCP HTTP Active', { headers: corsHeaders });
+      }
       
       const body = await request.json() as any;
-      let res: any;
+      let res: any = {};
       
       if (body.method === 'initialize') {
-        res = { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'search', version: '1.0' } };
+        res = {
+          protocolVersion: '2024-11-05',
+          capabilities: { tools: {} },
+          serverInfo: { name: 'unified-search', version: '1.0' }
+        };
       } else if (body.method === 'tools/list') {
-        res = { tools: [{ name: 'unified_search', description: '聚合搜索' }, { name: 'test_engines_connectivity', description: '连通性测试' }] };
+        res = {
+          tools: [
+            { name: 'unified_search', description: '聚合搜索' },
+            { name: 'test_engines_connectivity', description: '连通性测试' }
+          ]
+        };
       } else if (body.method === 'tools/call') {
-        if (body.params.name === 'unified_search') res = await runUnifiedSearch(env, body.params.arguments);
-        else res = await runConnectivityTest(env);
+        const toolName = body.params.name;
+        const toolArgs = body.params.arguments || {};
+        if (toolName === 'unified_search') {
+          res = await runUnifiedSearch(env, toolArgs);
+        } else {
+          res = await runConnectivityTest(env);
+        }
       }
-      return new Response(JSON.stringify({ jsonrpc: '2.0', result: res, id: body.id }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+      
+      const responseBody = JSON.stringify({ jsonrpc: '2.0', result: res, id: body.id });
+      return new Response(responseBody, {
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
     }
     
     if (url.pathname === '/' || url.pathname === '/health') {
-      return new Response('OK', { headers: cors });
+      return new Response('OK', { headers: corsHeaders });
     }
 
-    const id = env.MCP_OBJECT.idFromName('default');
-    return env.MCP_OBJECT.get(id).fetch(request);
+    const objId = env.MCP_OBJECT.idFromName('default');
+    const stub = env.MCP_OBJECT.get(objId);
+    return stub.fetch(request);
   }
 } as ExportedHandler<Env>;

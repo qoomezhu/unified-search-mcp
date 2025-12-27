@@ -87,15 +87,25 @@ export default {
     if (url.pathname === '/http') {
       const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': '*' };
       if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
+      
       const body = await request.json() as any;
       let res: any;
-      if (body.method === 'initialize') res = { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'search', version: '1.0' } };
-      else if (body.method === 'tools/list') res = { tools: [{ name: 'unified_search', description: '搜索' }, { name: 'test_engines_connectivity', description: '测试' }] };
-      else if (body.method === 'tools/call') {
-        if (body.params.name === 'unified_search') res = await runUnifiedSearch(env, body.params.arguments);
-        else res = await runConnectivityTest(env);
+      
+      if (body.method === 'initialize') {
+        res = { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'search', version: '1.0' } };
+      } else if (body.method === 'tools/list') {
+        res = { tools: [{ name: 'unified_search', description: '聚合搜索工具' }, { name: 'test_engines_connectivity', description: '连通性测试工具' }] };
+      } else if (body.method === 'tools/call') {
+        if (body.params.name === 'unified_search') {
+          res = await runUnifiedSearch(env, body.params.arguments);
+        } else {
+          res = await runConnectivityTest(env);
+        }
       }
-      return new Response(JSON.stringify({ jsonrpc: '2.0', result: res, id: body.id }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+      
+      return new Response(JSON.stringify({ jsonrpc: '2.0', result: res, id: body.id }), { 
+        headers: { ...cors, 'Content-Type': 'application/json' } 
+      });
     }
     const id = env.MCP_OBJECT.idFromName('default');
     return env.MCP_OBJECT.get(id).fetch(request);
